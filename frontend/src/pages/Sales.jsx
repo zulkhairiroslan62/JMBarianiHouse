@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import api, { safeArray, safeObject } from '../utils/api';
 import toast from 'react-hot-toast';
@@ -33,25 +33,40 @@ export default function Sales() {
     }
   };
 
-  const onDrop = useCallback(async (acceptedFiles) => {
+  const onDrop = async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return;
     setUploading(true);
+    let totalNew = 0;
+    let totalSuspicious = 0;
     try {
       for (const file of acceptedFiles) {
         const formData = new FormData();
         formData.append('file', file);
-        await api.post('/sales/upload', formData, {
+        const { data: result } = await api.post('/sales/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
+        // Backend returns: { total_records, new_records, duplicates_skipped, suspicious_detected, batch_id }
+        totalNew += result?.new_records || 0;
+        totalSuspicious += result?.suspicious_detected || 0;
       }
-      toast.success('Sales data uploaded');
-      fetchSales();
+      const msg = `Imported ${totalNew} new records` + 
+        (totalSuspicious > 0 ? `, ${totalSuspicious} suspicious detected` : '');
+      toast.success(msg);
+      // Refresh all data after upload
+      const [txnRes, susRes, sumRes] = await Promise.all([
+        api.get('/sales/transactions?page_size=50').catch(() => ({ data: [] })),
+        api.get('/sales/suspicious?is_resolved=false&limit=20').catch(() => ({ data: [] })),
+        api.get('/sales/summary').catch(() => ({ data: null })),
+      ]);
+      setTransactions(safeArray(txnRes.data));
+      setSuspicious(safeArray(susRes.data));
+      setSummary(safeObject(sumRes.data, null));
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, []);
+  };
 
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({

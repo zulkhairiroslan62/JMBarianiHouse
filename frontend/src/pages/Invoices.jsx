@@ -141,6 +141,7 @@ export default function Invoices() {
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Date</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Amount</th>
                   <th className="text-center px-6 py-3 text-gray-500 font-medium">Status</th>
+                  <th className="text-center px-3 py-3 text-gray-500 font-medium">Dup</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Action</th>
                 </tr>
               </thead>
@@ -159,6 +160,14 @@ export default function Invoices() {
                       <span className={`px-2 py-1 text-xs rounded-full font-medium capitalize ${statusBadge(inv.status)}`}>
                         {(inv.status || '').replace('_', ' ')}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {inv.is_duplicate === 2 && (
+                        <span className="px-2 py-0.5 text-xs rounded-full font-bold bg-red-100 text-red-700">DUPLICATE</span>
+                      )}
+                      {inv.is_duplicate === 1 && (
+                        <span className="px-2 py-0.5 text-xs rounded-full font-bold bg-yellow-100 text-yellow-700">POSSIBLE</span>
+                      )}
                     </td>
                     <td className="px-6 py-3 text-right">
                       <Link to={`/invoices/${inv.id}`} className="text-primary-600 hover:text-primary-800 text-sm font-medium">
