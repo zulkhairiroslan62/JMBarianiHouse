@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import api from '../utils/api';
+import api, { safeArray, safeNumber } from '../utils/api';
 import toast from 'react-hot-toast';
 
-const STATUS_OPTIONS = ['all', 'pending', 'confirmed', 'processing', 'error'];
+const STATUS_OPTIONS = ['all', 'uploaded', 'processing', 'needs_review', 'confirmed', 'processed'];
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
@@ -20,11 +20,15 @@ export default function Invoices() {
 
   const fetchInvoices = async () => {
     try {
-      const params = { page, limit: 10 };
+      const params = { page, page_size: 20 };
       if (statusFilter !== 'all') params.status = statusFilter;
-      const { data } = await api.get('/invoices', { params });
-      setInvoices(data.items || data);
-      setTotalPages(data.total_pages || Math.ceil((data.total || 0) / 10) || 1);
+      const { data } = await api.get('/invoices/', { params });
+      // Backend returns: { invoices: [...], total, page, page_size }
+      const list = safeArray(data, 'invoices', 'items');
+      setInvoices(list);
+      const total = safeNumber(data?.total, 0);
+      const pageSize = safeNumber(data?.page_size, 20);
+      setTotalPages(Math.max(1, Math.ceil(total / pageSize)));
     } catch (err) {
       toast.error('Failed to load invoices');
     } finally {
@@ -36,15 +40,17 @@ export default function Invoices() {
     if (acceptedFiles.length === 0) return;
     setUploading(true);
     try {
-      const formData = new FormData();
-      acceptedFiles.forEach((file) => formData.append('files', file));
-      await api.post('/invoices/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      for (const file of acceptedFiles) {
+        const formData = new FormData();
+        formData.append('file', file);
+        await api.post('/invoices/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
       toast.success(`${acceptedFiles.length} invoice(s) uploaded`);
       fetchInvoices();
     } catch (err) {
-      toast.error('Upload failed');
+      toast.error(err.response?.data?.detail || 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -58,10 +64,11 @@ export default function Invoices() {
 
   const statusBadge = (status) => {
     const map = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-green-100 text-green-800',
+      uploaded: 'bg-gray-100 text-gray-800',
       processing: 'bg-blue-100 text-blue-800',
-      error: 'bg-red-100 text-red-800',
+      needs_review: 'bg-yellow-100 text-yellow-800',
+      confirmed: 'bg-green-100 text-green-800',
+      processed: 'bg-purple-100 text-purple-800',
     };
     return map[status] || 'bg-gray-100 text-gray-800';
   };
@@ -82,7 +89,7 @@ export default function Invoices() {
           {uploading ? (
             <div className="flex items-center justify-center gap-2">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600"></div>
-              <span className="text-sm text-gray-600">Processing...</span>
+              <span className="text-sm text-gray-600">Processing with Claude AI OCR...</span>
             </div>
           ) : (
             <>
@@ -108,7 +115,7 @@ export default function Invoices() {
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            {s}
+            {s.replace('_', ' ')}
           </button>
         ))}
       </div>
@@ -142,13 +149,15 @@ export default function Invoices() {
                   <tr key={inv.id} className="hover:bg-gray-50">
                     <td className="px-6 py-3 text-gray-900 font-medium">{inv.supplier_name || '-'}</td>
                     <td className="px-6 py-3 text-gray-600">{inv.invoice_number || '-'}</td>
-                    <td className="px-6 py-3 text-gray-600">{inv.invoice_date || '-'}</td>
+                    <td className="px-6 py-3 text-gray-600">
+                      {inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('ms-MY') : '-'}
+                    </td>
                     <td className="px-6 py-3 text-right text-gray-900">
-                      {inv.total_amount != null ? `£${inv.total_amount.toFixed(2)}` : '-'}
+                      {inv.total_amount != null ? `RM ${inv.total_amount.toFixed(2)}` : '-'}
                     </td>
                     <td className="px-6 py-3 text-center">
                       <span className={`px-2 py-1 text-xs rounded-full font-medium capitalize ${statusBadge(inv.status)}`}>
-                        {inv.status}
+                        {(inv.status || '').replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-6 py-3 text-right">
