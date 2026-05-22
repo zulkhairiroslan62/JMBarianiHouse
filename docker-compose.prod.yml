@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jmbariani}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-jmbariani_hq}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jmbariani}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jmbariani
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-jmbariani}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-jmbariani_hq}
+      - SECRET_KEY=${SECRET_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - WHATSAPP_TOKEN=${WHATSAPP_TOKEN:-}
+      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID:-}
+      - ACEPOS_USERNAME=${ACEPOS_USERNAME:-}
+      - ACEPOS_PASSWORD=${ACEPOS_PASSWORD:-}
+      - UPLOAD_DIR=/app/uploads
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - jmbariani
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${BACKEND_URL:-http://localhost:8000}
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - jmbariani
+
+volumes:
+  postgres_data:
+  uploads_data:
+
+networks:
+  jmbariani:
+    driver: bridge
