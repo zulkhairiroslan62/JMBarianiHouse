@@ -7,7 +7,7 @@ import os, uuid
 from app.database import get_db
 from app.models.user import User
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
-from app.schemas.invoice import InvoiceResponse, InvoiceUpdate, InvoiceListResponse
+from app.schemas.invoice import InvoiceResponse, InvoiceUpdate, InvoiceListResponse, PaymentUpdate
 from app.utils.auth import get_current_user
 from app.config import settings
 
@@ -41,7 +41,7 @@ async def upload_invoice(file: UploadFile = File(...), current_user: User = Depe
 
 
 @router.get("/", response_model=InvoiceListResponse)
-def list_invoices(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), status: Optional[str] = None, supplier: Optional[str] = None, search: Optional[str] = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_invoices(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), status: Optional[str] = None, supplier: Optional[str] = None, search: Optional[str] = None, payment_status: Optional[str] = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(Invoice)
     if status:
         query = query.filter(Invoice.status == status)
@@ -49,6 +49,8 @@ def list_invoices(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
         query = query.filter(Invoice.supplier_name.ilike(f"%{supplier}%"))
     if search:
         query = query.filter(or_(Invoice.invoice_number.ilike(f"%{search}%"), Invoice.supplier_name.ilike(f"%{search}%")))
+    if payment_status:
+        query = query.filter(Invoice.payment_status == payment_status)
     total = query.count()
     invoices = query.order_by(Invoice.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return InvoiceListResponse(invoices=[InvoiceResponse.model_validate(inv) for inv in invoices], total=total, page=page, page_size=page_size)
@@ -132,6 +134,25 @@ def unconfirm_invoice(invoice_id: int, current_user: User = Depends(get_current_
     invoice.confirmed_at = None
     invoice.notes = (invoice.notes or '') + f"\n[Revoked by user #{current_user.id} at {datetime.now(timezone.utc).isoformat()}]"
 
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
+@router.post("/{invoice_id}/payment", response_model=InvoiceResponse)
+def update_payment(invoice_id: int, request: PaymentUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Update payment status for an invoice."""
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    invoice.payment_status = request.payment_status
+    if request.payment_method is not None:
+        invoice.payment_method = request.payment_method
+    if request.amount_paid is not None:
+        invoice.amount_paid = request.amount_paid
+    if request.payment_date is not None:
+        invoice.payment_date = request.payment_date
+    elif request.payment_status.value in ['paid', 'partial'] and not invoice.payment_date:
+        invoice.payment_date = datetime.now(timezone.utc)
     db.commit()
     db.refresh(invoice)
     return invoice

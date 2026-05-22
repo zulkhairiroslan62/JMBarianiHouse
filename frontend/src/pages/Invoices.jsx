@@ -5,23 +5,26 @@ import api, { safeArray, safeNumber } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const STATUS_OPTIONS = ['all', 'uploaded', 'processing', 'needs_review', 'confirmed', 'processed'];
+const PAYMENT_OPTIONS = ['all', 'unpaid', 'partial', 'paid'];
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     fetchInvoices();
-  }, [statusFilter, page]);
+  }, [statusFilter, paymentFilter, page]);
 
   const fetchInvoices = async () => {
     try {
       const params = { page, page_size: 20 };
       if (statusFilter !== 'all') params.status = statusFilter;
+      if (paymentFilter !== 'all') params.payment_status = paymentFilter;
       const { data } = await api.get('/invoices/', { params });
       // Backend returns: { invoices: [...], total, page, page_size }
       const list = safeArray(data, 'invoices', 'items');
@@ -129,6 +132,20 @@ export default function Invoices() {
             {s.replace('_', ' ')}
           </button>
         ))}
+        <span className="text-gray-300 mx-1">|</span>
+        {PAYMENT_OPTIONS.map((p) => (
+          <button
+            key={p}
+            onClick={() => { setPaymentFilter(p); setPage(1); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors capitalize ${
+              paymentFilter === p
+                ? 'bg-orange-500 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
       </div>
 
       {/* Invoice Table */}
@@ -152,6 +169,7 @@ export default function Invoices() {
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Date</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Amount</th>
                   <th className="text-center px-6 py-3 text-gray-500 font-medium">Status</th>
+                  <th className="text-center px-3 py-3 text-gray-500 font-medium">Payment</th>
                   <th className="text-center px-3 py-3 text-gray-500 font-medium">Dup</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Action</th>
                 </tr>
@@ -171,6 +189,17 @@ export default function Invoices() {
                       <span className={`px-2 py-1 text-xs rounded-full font-medium capitalize ${statusBadge(inv.status)}`}>
                         {(inv.status || '').replace('_', ' ')}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {(!inv.payment_status || inv.payment_status === 'unpaid') && (
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-red-100 text-red-700">Unpaid</span>
+                      )}
+                      {inv.payment_status === 'partial' && (
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-orange-100 text-orange-700">Partial</span>
+                      )}
+                      {inv.payment_status === 'paid' && (
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-green-100 text-green-700">Paid</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       {inv.is_duplicate === 2 && (

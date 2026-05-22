@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
-from app.models.invoice import InvoiceStatus
+from app.models.invoice import InvoiceStatus, PaymentStatus
 
 class InvoiceItemSchema(BaseModel):
     id: Optional[int] = None
@@ -30,6 +30,11 @@ class InvoiceResponse(BaseModel):
     confirmed_by: Optional[int] = None
     created_at: Optional[datetime] = None
     confirmed_at: Optional[datetime] = None
+    # Payment
+    payment_status: Optional[PaymentStatus] = PaymentStatus.UNPAID
+    payment_date: Optional[datetime] = None
+    payment_method: Optional[str] = None
+    amount_paid: Optional[float] = 0.0
     items: List[InvoiceItemSchema] = []
     class Config:
         from_attributes = True
@@ -42,6 +47,12 @@ class InvoiceUpdate(BaseModel):
     tax_amount: Optional[float] = None
     notes: Optional[str] = None
     items: Optional[List[InvoiceItemSchema]] = None
+
+class PaymentUpdate(BaseModel):
+    payment_status: PaymentStatus
+    payment_method: Optional[str] = None
+    amount_paid: Optional[float] = None
+    payment_date: Optional[datetime] = None
 
 class InvoiceListResponse(BaseModel):
     invoices: List[InvoiceResponse]

@@ -11,6 +11,11 @@ class InvoiceStatus(str, enum.Enum):
     CONFIRMED = "confirmed"
     PROCESSED = "processed"
 
+class PaymentStatus(str, enum.Enum):
+    UNPAID = "unpaid"
+    PARTIAL = "partial"
+    PAID = "paid"
+
 class Invoice(Base):
     __tablename__ = "invoices"
     id = Column(Integer, primary_key=True, index=True)
@@ -33,6 +38,11 @@ class Invoice(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    # Payment tracking
+    payment_status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.UNPAID, index=True)
+    payment_date = Column(DateTime(timezone=True), nullable=True)
+    payment_method = Column(String(50), nullable=True)  # cash, bank_transfer, cheque, ewallet
+    amount_paid = Column(Float, default=0.0)
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
 
 class InvoiceItem(Base):

@@ -3,6 +3,77 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api, { safeArray } from '../utils/api';
 import toast from 'react-hot-toast';
 
+function PaymentForm({ invoiceId, invoice, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    payment_status: invoice.payment_status || 'unpaid',
+    payment_method: invoice.payment_method || '',
+    amount_paid: invoice.amount_paid || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        payment_status: form.payment_status,
+        payment_method: form.payment_method || null,
+        amount_paid: form.amount_paid ? parseFloat(form.amount_paid) : null,
+      };
+      const { data } = await api.post(`/invoices/${invoiceId}/payment`, payload);
+      onUpdate(data);
+      setOpen(false);
+      toast.success('Payment updated');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to update payment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="btn-secondary text-sm">
+        Update Payment
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-gray-50 rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Status</label>
+          <select className="input-field" value={form.payment_status} onChange={e => setForm({ ...form, payment_status: e.target.value })}>
+            <option value="unpaid">Unpaid</option>
+            <option value="partial">Partial</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Method</label>
+          <select className="input-field" value={form.payment_method} onChange={e => setForm({ ...form, payment_method: e.target.value })}>
+            <option value="">-</option>
+            <option value="cash">Cash</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="cheque">Cheque</option>
+            <option value="ewallet">E-Wallet</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Amount Paid (RM)</label>
+          <input type="number" step="0.01" className="input-field" value={form.amount_paid} onChange={e => setForm({ ...form, amount_paid: e.target.value })} placeholder={String(invoice.total_amount || 0)} />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button type="submit" disabled={saving} className="btn-primary text-sm">{saving ? 'Saving...' : 'Save Payment'}</button>
+        <button type="button" onClick={() => setOpen(false)} className="btn-secondary text-sm">Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 export default function InvoiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -230,6 +301,41 @@ export default function InvoiceDetail() {
             <p className="text-sm text-gray-700">{invoice.original_filename || '-'}</p>
           </div>
         </div>
+      </div>
+
+      {/* Payment Section */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Payment</h3>
+          <span className={`px-3 py-1 text-xs rounded-full font-bold ${
+            invoice.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+            invoice.payment_status === 'partial' ? 'bg-orange-100 text-orange-700' :
+            'bg-red-100 text-red-700'
+          }`}>
+            {(invoice.payment_status || 'unpaid').toUpperCase()}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Amount Paid</label>
+            <p className="font-medium">RM {(invoice.amount_paid || 0).toFixed(2)} / {(invoice.total_amount || 0).toFixed(2)}</p>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Payment Method</label>
+            <p className="font-medium capitalize">{invoice.payment_method || '-'}</p>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Payment Date</label>
+            <p className="font-medium">{invoice.payment_date ? new Date(invoice.payment_date).toLocaleDateString('ms-MY') : '-'}</p>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Balance</label>
+            <p className={`font-medium ${((invoice.total_amount || 0) - (invoice.amount_paid || 0)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              RM {Math.max(0, (invoice.total_amount || 0) - (invoice.amount_paid || 0)).toFixed(2)}
+            </p>
+          </div>
+        </div>
+        <PaymentForm invoiceId={id} invoice={invoice} onUpdate={(data) => { setInvoice(data); setItems(safeArray(data.items)); }} />
       </div>
 
       {/* Line Items Table */}
