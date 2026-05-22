@@ -4,10 +4,7 @@ import api from '../utils/api';
 import toast from 'react-hot-toast';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
 } from 'recharts';
-
-const COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#6366f1'];
 
 function KPICard({ label, value, unit, change_percent, trend }) {
   const displayValue = unit === 'RM' ? `RM ${(value || 0).toLocaleString()}` : `${value || 0}${unit || ''}`;
@@ -58,13 +55,10 @@ function OwnerDashboard() {
   if (loading) return <LoadingState />;
   if (!data) return <p className="text-gray-500">No data available</p>;
 
-  // Transform stock_health object into array for PieChart
-  const stockHealth = data.stock_health || {};
-  const stockHealthData = [
-    { name: 'Healthy', value: stockHealth.healthy || 0 },
-    { name: 'Low Stock', value: stockHealth.low_stock || 0 },
-    { name: 'Out of Stock', value: stockHealth.out_of_stock || 0 },
-  ].filter(item => item.value > 0);
+  // stock_health is an object: {total, healthy, low_stock, out_of_stock}
+  const stockHealth = (data.stock_health && typeof data.stock_health === 'object' && !Array.isArray(data.stock_health))
+    ? data.stock_health
+    : { total: 0, healthy: 0, low_stock: 0, out_of_stock: 0 };
 
   // KPI cards from backend
   const kpiCards = Array.isArray(data.kpi_cards) ? data.kpi_cards : [];
@@ -72,11 +66,14 @@ function OwnerDashboard() {
   // Top suppliers - backend uses "spend" key
   const topSuppliers = Array.isArray(data.top_suppliers) ? data.top_suppliers : [];
 
-  // AI insights
+  // AI insights - can be empty []
   const aiInsights = Array.isArray(data.ai_insights) ? data.ai_insights : [];
 
-  // Suspicious alerts
+  // Suspicious alerts - can be empty []
   const suspiciousAlerts = Array.isArray(data.suspicious_alerts) ? data.suspicious_alerts : [];
+
+  // opex_vs_sales - can be empty []
+  const opexVsSales = Array.isArray(data.opex_vs_sales) ? data.opex_vs_sales : [];
 
   return (
     <div className="space-y-6">
@@ -126,35 +123,27 @@ function OwnerDashboard() {
           )}
         </div>
 
-        {/* Stock Health Pie Chart */}
+        {/* Stock Health - Stat Cards (object, not array) */}
         <div className="card">
           <h3 className="text-lg font-semibold mb-4">Stock Health</h3>
-          {stockHealthData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={stockHealthData}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  dataKey="value"
-                  nameKey="name"
-                  label={({ name, value }) => `${name}: ${value}`}
-                >
-                  {stockHealthData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-sm text-gray-400">No inventory items yet</p>
-              <p className="text-xs text-gray-300 mt-1">Total: {stockHealth.total || 0} items</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-4 bg-gray-50 rounded-lg text-center">
+              <p className="text-2xl font-bold text-gray-900">{stockHealth.total || 0}</p>
+              <p className="text-xs text-gray-500 mt-1">Total Items</p>
             </div>
-          )}
+            <div className="p-4 bg-green-50 rounded-lg text-center">
+              <p className="text-2xl font-bold text-green-600">{stockHealth.healthy || 0}</p>
+              <p className="text-xs text-green-700 mt-1">Healthy</p>
+            </div>
+            <div className="p-4 bg-yellow-50 rounded-lg text-center">
+              <p className="text-2xl font-bold text-yellow-600">{stockHealth.low_stock || 0}</p>
+              <p className="text-xs text-yellow-700 mt-1">Low Stock</p>
+            </div>
+            <div className="p-4 bg-red-50 rounded-lg text-center">
+              <p className="text-2xl font-bold text-red-600">{stockHealth.out_of_stock || 0}</p>
+              <p className="text-xs text-red-700 mt-1">Out of Stock</p>
+            </div>
+          </div>
         </div>
       </div>
 
