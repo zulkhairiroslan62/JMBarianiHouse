@@ -12,6 +12,8 @@ export default function Sales() {
   const [suspicious, setSuspicious] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
   const [activeTab, setActiveTab] = useState('transactions');
 
   useEffect(() => { fetchSales(); }, []);
@@ -35,44 +37,64 @@ export default function Sales() {
 
   const onDrop = async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return;
-    setUploading(true);
-    let totalNew = 0;
-    let totalSuspicious = 0;
-    try {
-      for (const file of acceptedFiles) {
-        const formData = new FormData();
-        formData.append('file', file);
+    const file = acceptedFiles[0];
+    const filename = (file.name || '').toLowerCase();
+    const isStructured = filename.endsWith('.csv') || filename.endsWith('.xlsx') || filename.endsWith('.xls');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (isStructured) {
+      // Structured CSV/Excel → parse into transactions
+      setUploading(true);
+      try {
         const { data: result } = await api.post('/sales/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        // Backend returns: { total_records, new_records, duplicates_skipped, suspicious_detected, batch_id }
-        totalNew += result?.new_records || 0;
-        totalSuspicious += result?.suspicious_detected || 0;
+        const msg = `Imported ${result?.new_records || 0} records` +
+          (result?.suspicious_detected > 0 ? `, ${result.suspicious_detected} suspicious` : '');
+        toast.success(msg);
+        // Refresh data
+        const [txnRes, susRes, sumRes] = await Promise.all([
+          api.get('/sales/transactions?page_size=50').catch(() => ({ data: [] })),
+          api.get('/sales/suspicious?is_resolved=false&limit=20').catch(() => ({ data: [] })),
+          api.get('/sales/summary').catch(() => ({ data: null })),
+        ]);
+        setTransactions(safeArray(txnRes.data));
+        setSuspicious(safeArray(susRes.data));
+        setSummary(safeObject(sumRes.data, null));
+      } catch (err) {
+        toast.error(err.response?.data?.detail || 'Upload failed');
+      } finally {
+        setUploading(false);
       }
-      const msg = `Imported ${totalNew} new records` + 
-        (totalSuspicious > 0 ? `, ${totalSuspicious} suspicious detected` : '');
-      toast.success(msg);
-      // Refresh all data after upload
-      const [txnRes, susRes, sumRes] = await Promise.all([
-        api.get('/sales/transactions?page_size=50').catch(() => ({ data: [] })),
-        api.get('/sales/suspicious?is_resolved=false&limit=20').catch(() => ({ data: [] })),
-        api.get('/sales/summary').catch(() => ({ data: null })),
-      ]);
-      setTransactions(safeArray(txnRes.data));
-      setSuspicious(safeArray(susRes.data));
-      setSummary(safeObject(sumRes.data, null));
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Upload failed');
-    } finally {
-      setUploading(false);
+    } else {
+      // PDF/Image/Other → AI analysis with Claude
+      setAnalyzing(true);
+      setAiResult(null);
+      try {
+        const { data: result } = await api.post('/sales/analyze', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        setAiResult(result);
+        toast.success('AI analysis complete');
+        setActiveTab('ai-analysis');
+      } catch (err) {
+        toast.error(err.response?.data?.detail || 'AI analysis failed');
+      } finally {
+        setAnalyzing(false);
+      }
     }
   };
 
-
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'text/csv': [], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [], 'application/vnd.ms-excel': [] },
-    multiple: true,
+    accept: {
+      'text/csv': [], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [],
+      'application/vnd.ms-excel': [], 'application/pdf': [],
+      'image/jpeg': [], 'image/png': [], 'image/jpg': [],
+    },
+    multiple: false,
   });
 
   const handleResolve = async (id) => {
@@ -94,12 +116,16 @@ export default function Sales() {
   }
 
   const topItems = safeArray(summary?.top_items);
+  const aiItems = safeArray(aiResult?.items);
+  const aiInsights = safeArray(aiResult?.insights);
+  const aiAnomalies = safeArray(aiResult?.anomalies);
+  const aiSummary = safeObject(aiResult?.summary, {});
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Sales Integration (AcePOS)</h1>
+      <h1 className="text-2xl font-bold text-gray-900">Sales Intelligence</h1>
 
-      {/* Upload Zone */}
+      {/* Upload Zone — accepts ALL file types */}
       <div
         {...getRootProps()}
         className={`card border-2 border-dashed cursor-pointer transition-colors ${
@@ -107,25 +133,29 @@ export default function Sales() {
         }`}
       >
         <input {...getInputProps()} />
-        <div className="text-center py-4">
-          {uploading ? (
-            <div className="flex items-center justify-center gap-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600"></div>
-              <span className="text-sm text-gray-600">Processing sales data...</span>
+        <div className="text-center py-5">
+          {(uploading || analyzing) ? (
+            <div className="flex items-center justify-center gap-3">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
+              <span className="text-sm text-gray-600">
+                {analyzing ? 'Claude AI analyzing your file...' : 'Parsing sales data...'}
+              </span>
             </div>
           ) : (
             <>
-              <p className="text-sm font-medium text-gray-700">
-                {isDragActive ? 'Drop sales files here...' : 'Upload AcePOS Export (CSV/Excel)'}
+              <p className="text-lg font-medium text-gray-700">
+                {isDragActive ? 'Drop file here...' : 'Upload Sales Data (Any Format)'}
               </p>
-              <p className="text-xs text-gray-400 mt-1">CSV, XLS, XLSX supported</p>
+              <p className="text-sm text-gray-500 mt-1">
+                CSV/Excel → auto-parsed into transactions | PDF/Image → Claude AI interprets
+              </p>
+              <p className="text-xs text-gray-400 mt-1">Supports: CSV, XLSX, PDF, JPG, PNG</p>
             </>
           )}
         </div>
       </div>
 
-
-      {/* Summary Cards */}
+      {/* Summary Cards (from DB) */}
       {summary && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="card text-center">
@@ -171,8 +201,12 @@ export default function Sales() {
         <button onClick={() => setActiveTab('suspicious')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'suspicious' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500'}`}>
           Suspicious ({suspicious.length})
         </button>
+        {aiResult && (
+          <button onClick={() => setActiveTab('ai-analysis')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'ai-analysis' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500'}`}>
+            AI Analysis
+          </button>
+        )}
       </div>
-
 
       {/* Transactions Table */}
       {activeTab === 'transactions' && (
@@ -238,6 +272,98 @@ export default function Sales() {
                 <button onClick={() => handleResolve(s.id)} className="text-xs btn-secondary whitespace-nowrap">Resolve</button>
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* AI Analysis Tab */}
+      {activeTab === 'ai-analysis' && aiResult && (
+        <div className="space-y-6">
+          {/* AI Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="card text-center border-l-4 border-l-purple-500">
+              <p className="text-xs text-gray-500">AI: Total Sales</p>
+              <p className="text-lg font-bold text-purple-700">RM {(aiSummary.total_sales || 0).toLocaleString()}</p>
+            </div>
+            <div className="card text-center border-l-4 border-l-purple-500">
+              <p className="text-xs text-gray-500">AI: Transactions</p>
+              <p className="text-lg font-bold text-purple-700">{aiSummary.total_transactions || 0}</p>
+            </div>
+            <div className="card text-center border-l-4 border-l-purple-500">
+              <p className="text-xs text-gray-500">AI: Avg Value</p>
+              <p className="text-lg font-bold text-purple-700">RM {(aiSummary.avg_transaction_value || 0).toFixed(0)}</p>
+            </div>
+            <div className="card text-center border-l-4 border-l-purple-500">
+              <p className="text-xs text-gray-500">Date Range</p>
+              <p className="text-sm font-bold text-purple-700">{aiSummary.date_range || 'N/A'}</p>
+            </div>
+          </div>
+
+          {/* AI Insights */}
+          {aiInsights.length > 0 && (
+            <div className="card">
+              <h3 className="text-lg font-semibold mb-3">AI Insights</h3>
+              <ul className="space-y-2">
+                {aiInsights.map((insight, i) => (
+                  <li key={i} className="flex items-start gap-2 p-2 bg-purple-50 rounded-lg">
+                    <span className="text-purple-500 mt-0.5">•</span>
+                    <span className="text-sm text-gray-800">{insight}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* AI Anomalies */}
+          {aiAnomalies.length > 0 && (
+            <div className="card border border-red-200">
+              <h3 className="text-lg font-semibold text-red-700 mb-3">Anomalies Detected</h3>
+              <ul className="space-y-2">
+                {aiAnomalies.map((anomaly, i) => (
+                  <li key={i} className="flex items-start gap-2 p-2 bg-red-50 rounded-lg">
+                    <span className="text-red-500 mt-0.5">!</span>
+                    <span className="text-sm text-red-800">{anomaly}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* AI Extracted Items Table */}
+          {aiItems.length > 0 && (
+            <div className="card overflow-hidden p-0">
+              <div className="px-6 py-4 border-b bg-gray-50">
+                <h3 className="font-semibold">Extracted Items ({aiItems.length})</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-gray-500 font-medium">Item</th>
+                      <th className="text-right px-4 py-2 text-gray-500 font-medium">Qty</th>
+                      <th className="text-right px-4 py-2 text-gray-500 font-medium">Total (RM)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {aiItems.map((item, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-medium text-gray-900">{item.name || item.item_name || '-'}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{item.quantity || '-'}</td>
+                        <td className="px-4 py-2 text-right font-medium">RM {(item.total || item.total_price || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Raw AI response text */}
+          {aiResult.raw_text && (
+            <div className="card">
+              <h3 className="text-sm font-semibold text-gray-500 mb-2">AI Summary</h3>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{aiResult.raw_text}</p>
+            </div>
           )}
         </div>
       )}

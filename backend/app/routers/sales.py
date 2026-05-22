@@ -14,7 +14,7 @@ router = APIRouter()
 @router.post("/upload", response_model=SalesUploadResponse)
 async def upload_sales_data(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not file.filename.endswith(('.csv', '.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="File must be CSV or Excel")
+        raise HTTPException(status_code=400, detail="For CSV/Excel structured data. Use /sales/analyze for PDF/images.")
     content = await file.read()
     batch_id = str(uuid.uuid4())[:8]
     from app.services.sales_service import parse_sales_file
@@ -56,6 +56,21 @@ def resolve_suspicious(alert_id: int, resolution_notes: str = "", current_user: 
     alert.resolved_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "Alert resolved"}
+
+@router.post("/analyze")
+async def analyze_sales_file(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI-powered analysis of any sales file (CSV, Excel, PDF, JPG, PNG) using Claude."""
+    allowed_extensions = ('.csv', '.xlsx', '.xls', '.pdf', '.jpg', '.jpeg', '.png')
+    filename_lower = (file.filename or '').lower()
+    if not any(filename_lower.endswith(ext) for ext in allowed_extensions):
+        raise HTTPException(status_code=400, detail="Supported: CSV, Excel, PDF, JPG, PNG")
+    content = await file.read()
+    from app.services.sales_service import analyze_sales_with_ai
+    try:
+        result = analyze_sales_with_ai(content, file.filename, file.content_type)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
 
 @router.post("/fetch-acepos")
 def trigger_acepos_fetch(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

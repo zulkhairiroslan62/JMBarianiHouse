@@ -94,3 +94,123 @@ def calculate_sales_summary(db: Session, date_from: str = None, date_to: str = N
     void_count = db.query(SalesTransaction).filter(SalesTransaction.is_void == True).count()
     refund_count = db.query(SalesTransaction).filter(SalesTransaction.is_refund == True).count()
     return SalesSummary(total_sales=round(total_sales, 2), total_transactions=total_count, avg_transaction_value=round(avg_value, 2), top_items=top_items, payment_breakdown={k: round(v, 2) for k, v in payment_counts.items()}, void_count=void_count, refund_count=refund_count)
+
+
+
+def analyze_sales_with_ai(content: bytes, filename: str, content_type: str = None) -> dict:
+    """Use Claude AI to analyze any sales file — CSV, Excel, PDF, or image."""
+    import base64
+    import json
+    from app.config import settings
+
+    if not settings.ANTHROPIC_API_KEY:
+        return {
+            "status": "no_api_key",
+            "summary": {"total_sales": 0, "total_transactions": 0, "avg_transaction_value": 0, "date_range": "N/A"},
+            "insights": ["Claude API key not configured. Please set ANTHROPIC_API_KEY."],
+            "items": [],
+            "anomalies": [],
+            "raw_text": "AI analysis requires ANTHROPIC_API_KEY to be set."
+        }
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    prompt = """This is a sales report, receipt, or transaction data file. Analyze the content and extract:
+
+Return a JSON object with this structure:
+{
+  "summary": {
+    "total_sales": number (total RM amount),
+    "total_transactions": number,
+    "avg_transaction_value": number,
+    "date_range": "string describing the date range"
+  },
+  "items": [
+    {"name": "item name", "quantity": number, "total": number}
+  ],
+  "insights": ["insight 1 in BM/EN", "insight 2", ...],
+  "anomalies": ["anomaly 1 if any", ...],
+  "raw_text": "brief plain text summary of what you see"
+}
+
+Rules:
+- Extract ALL items/products you can find
+- Amounts in RM (Malaysian Ringgit)
+- If you cannot determine exact numbers, estimate from what's visible
+- Insights should be useful for a restaurant owner
+- Flag any anomalies (unusual discounts, voids, after-hours transactions)
+- Return ONLY valid JSON"""
+
+    filename_lower = (filename or '').lower()
+
+    # Determine how to send the file to Claude
+    if filename_lower.endswith(('.jpg', '.jpeg', '.png', '.pdf')):
+        # Image/PDF: use vision
+        file_b64 = base64.standard_b64encode(content).decode("utf-8")
+        media_map = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.pdf': 'application/pdf'}
+        ext = '.' + filename_lower.rsplit('.', 1)[-1]
+        media_type = media_map.get(ext, content_type or 'application/octet-stream')
+
+        messages = [{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": file_b64}},
+            {"type": "text", "text": prompt}
+        ]}]
+    else:
+        # CSV/Excel: read as text and send as text content
+        try:
+            import pandas as pd
+            if filename_lower.endswith('.csv'):
+                df = pd.read_csv(io.BytesIO(content))
+            else:
+                df = pd.read_excel(io.BytesIO(content))
+            # Send first 100 rows as text representation
+            text_content = f"Filename: {filename}\nRows: {len(df)}\nColumns: {list(df.columns)}\n\nData (first 100 rows):\n{df.head(100).to_string()}"
+        except Exception:
+            text_content = f"Filename: {filename}\nRaw content (first 5000 chars):\n{content[:5000].decode('utf-8', errors='replace')}"
+
+        messages = [{"role": "user", "content": f"{prompt}\n\n---\nFILE CONTENT:\n{text_content}"}]
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4096,
+            messages=messages
+        )
+        response_text = message.content[0].text
+
+        # Parse JSON from response
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0]
+
+        data = json.loads(response_text.strip())
+
+        # Ensure expected structure
+        return {
+            "status": "success",
+            "summary": data.get("summary", {"total_sales": 0, "total_transactions": 0, "avg_transaction_value": 0, "date_range": "Unknown"}),
+            "items": data.get("items", []),
+            "insights": data.get("insights", []),
+            "anomalies": data.get("anomalies", []),
+            "raw_text": data.get("raw_text", "")
+        }
+    except json.JSONDecodeError:
+        return {
+            "status": "success",
+            "summary": {"total_sales": 0, "total_transactions": 0, "avg_transaction_value": 0, "date_range": "Unknown"},
+            "items": [],
+            "insights": [response_text[:500] if response_text else "Could not parse structured data"],
+            "anomalies": [],
+            "raw_text": response_text[:1000] if response_text else ""
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "summary": {"total_sales": 0, "total_transactions": 0, "avg_transaction_value": 0, "date_range": "N/A"},
+            "items": [],
+            "insights": [f"Analysis error: {str(e)}"],
+            "anomalies": [],
+            "raw_text": str(e)
+        }
