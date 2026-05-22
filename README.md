@@ -11,7 +11,7 @@ Production-ready full-stack application for managing restaurant operations with 
 | Backend | Python 3.11 + FastAPI + SQLAlchemy |
 | Database | PostgreSQL 15 |
 | Frontend | React 18 + Vite + TailwindCSS + Recharts |
-| AI | Anthropic Claude API (claude-sonnet-4-20250514) |
+| AI | Anthropic Claude API (claude-3-5-sonnet-latest) |
 | Auth | JWT (JSON Web Tokens) |
 | Deploy | Docker Compose |
 

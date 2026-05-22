@@ -23,7 +23,7 @@ def generate_insights(db: Session):
 Generate 5 insights as JSON array: [{{"insight_type":"stock|spending|supplier|sales|waste","title":"Short title","content_bm":"BM insight","content_en":"EN insight","severity":"info|warning|critical"}}]
 Return ONLY JSON."""
     try:
-        message = client.messages.create(model="claude-sonnet-4-20250514", max_tokens=2048, messages=[{"role": "user", "content": prompt}])
+        message = client.messages.create(model="claude-sonnet-4-5", max_tokens=2048, messages=[{"role": "user", "content": prompt}])
         text = message.content[0].text
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0]
@@ -83,7 +83,7 @@ def get_ai_response_for_query(db: Session, query: str) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
-        message = client.messages.create(model="claude-sonnet-4-20250514", max_tokens=300, messages=[{"role": "user", "content": f"You are WhatsApp assistant for JM Bariani House. Answer SHORT (max 3 lines). Data: {json.dumps(context, default=str)}\nQuery: {query}"}])
+        message = client.messages.create(model="claude-sonnet-4-5", max_tokens=300, messages=[{"role": "user", "content": f"You are WhatsApp assistant for JM Bariani House. Answer SHORT (max 3 lines). Data: {json.dumps(context, default=str)}\nQuery: {query}"}])
         return message.content[0].text
     except Exception:
         return "Maaf, sistem sedang sibuk. Cuba lagi."

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from app.models.invoice import InvoiceStatus, PaymentStatus
@@ -12,6 +12,7 @@ class InvoiceItemSchema(BaseModel):
     total_price: float
     category: Optional[str] = None
     inventory_item_id: Optional[int] = None
+    model_config = ConfigDict(from_attributes=True)
 
 class InvoiceResponse(BaseModel):
     id: int
@@ -30,14 +31,14 @@ class InvoiceResponse(BaseModel):
     confirmed_by: Optional[int] = None
     created_at: Optional[datetime] = None
     confirmed_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
     # Payment
     payment_status: Optional[PaymentStatus] = PaymentStatus.UNPAID
     payment_date: Optional[datetime] = None
     payment_method: Optional[str] = None
     amount_paid: Optional[float] = 0.0
     items: List[InvoiceItemSchema] = []
-    class Config:
-        from_attributes = True
+       
 
 class InvoiceUpdate(BaseModel):
     invoice_number: Optional[str] = None

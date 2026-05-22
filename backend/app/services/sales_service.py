@@ -153,7 +153,7 @@ Rules:
         media_type = media_map.get(ext, content_type or 'application/octet-stream')
 
         messages = [{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": file_b64}},
+            {"type": "document", "source": {"type": "base64", "media_type": media_type, "data": file_b64}},
             {"type": "text", "text": prompt}
         ]}]
     else:
@@ -173,7 +173,7 @@ Rules:
 
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=4096,
             messages=messages
         )
