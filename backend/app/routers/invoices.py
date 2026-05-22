@@ -100,13 +100,49 @@ def confirm_invoice(invoice_id: int, current_user: User = Depends(get_current_us
     db.refresh(invoice)
     return invoice
 
+@router.post("/{invoice_id}/unconfirm", response_model=InvoiceResponse)
+def unconfirm_invoice(invoice_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Revoke a confirmed/processed invoice — reverse inventory quantities, set back to needs_review."""
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.status not in [InvoiceStatus.CONFIRMED, InvoiceStatus.PROCESSED]:
+        raise HTTPException(status_code=400, detail=f"Cannot revoke invoice with status: {invoice.status}")
+
+    # Reverse inventory updates — remove stock movements linked to this invoice
+    from app.models.inventory import InventoryItem, StockMovement, MovementType
+    movements = db.query(StockMovement).filter(
+        StockMovement.reference_type == "invoice",
+        StockMovement.reference_id == invoice_id
+    ).all()
+
+    for movement in movements:
+        # Reverse the quantity change
+        item = db.query(InventoryItem).filter(InventoryItem.id == movement.inventory_item_id).first()
+        if item:
+            item.current_stock -= movement.quantity  # movement.quantity was positive for stock_in
+            if item.current_stock < 0:
+                item.current_stock = 0
+            item.is_below_reorder = item.current_stock <= item.reorder_level
+        db.delete(movement)
+
+    # Reset invoice status
+    invoice.status = InvoiceStatus.NEEDS_REVIEW
+    invoice.confirmed_by = None
+    invoice.confirmed_at = None
+    invoice.notes = (invoice.notes or '') + f"\n[Revoked by user #{current_user.id} at {datetime.now(timezone.utc).isoformat()}]"
+
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
 @router.delete("/{invoice_id}")
 def delete_invoice(invoice_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     if invoice.status == InvoiceStatus.PROCESSED:
-        raise HTTPException(status_code=400, detail="Cannot delete a processed invoice")
+        raise HTTPException(status_code=400, detail="Cannot delete a processed invoice. Revoke it first.")
     if os.path.exists(invoice.stored_filepath):
         os.remove(invoice.stored_filepath)
     db.delete(invoice)

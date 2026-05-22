@@ -88,6 +88,21 @@ export default function InvoiceDetail() {
     }
   };
 
+  const handleRevoke = async () => {
+    if (!window.confirm('Revoke this invoice? Inventory quantities will be reversed.')) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/invoices/${id}/unconfirm`);
+      setInvoice(data);
+      setItems(safeArray(data.items));
+      toast.success('Invoice revoked — inventory reversed');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to revoke');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!window.confirm('Delete this invoice? This cannot be undone.')) return;
     try {
@@ -111,6 +126,7 @@ export default function InvoiceDetail() {
 
   const canEdit = !['processed'].includes(invoice.status);
   const canConfirm = ['needs_review', 'uploaded', 'processing'].includes(invoice.status);
+  const canRevoke = ['confirmed', 'processed'].includes(invoice.status);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -139,6 +155,11 @@ export default function InvoiceDetail() {
           {canConfirm && (
             <button onClick={handleConfirm} disabled={saving} className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50">
               Confirm & Update Stock
+            </button>
+          )}
+          {canRevoke && (
+            <button onClick={handleRevoke} disabled={saving} className="bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50">
+              Revoke Confirmation
             </button>
           )}
           {canEdit && (
