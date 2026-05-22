@@ -36,7 +36,6 @@ chmod +x deploy.sh
 
 **Access:** Frontend http://localhost:3000 | Backend http://localhost:8000 | Docs http://localhost:8000/docs
 
-**Default Login:** owner@jmbariani.com / owner123 | admin@jmbariani.com / admin123
 
 ## Environment Variables
 
