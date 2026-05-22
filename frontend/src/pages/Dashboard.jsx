@@ -7,20 +7,19 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 
-const COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#6366f1', '#06b6d4'];
+const COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#6366f1'];
 
-function KPICard({ title, value, subtitle, color = 'primary' }) {
-  const colorMap = {
-    primary: 'border-l-primary-500',
-    green: 'border-l-green-500',
-    red: 'border-l-red-500',
-    blue: 'border-l-blue-500',
-  };
+function KPICard({ label, value, unit, change_percent, trend }) {
+  const displayValue = unit === 'RM' ? `RM ${(value || 0).toLocaleString()}` : `${value || 0}${unit || ''}`;
   return (
-    <div className={`card border-l-4 ${colorMap[color] || colorMap.primary}`}>
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-      {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+    <div className="card border-l-4 border-l-primary-500">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{displayValue}</p>
+      {change_percent != null && (
+        <p className={`text-xs mt-1 ${trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-600' : 'text-gray-500'}`}>
+          {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'} {Math.abs(change_percent)}% vs previous
+        </p>
+      )}
     </div>
   );
 }
@@ -28,14 +27,16 @@ function KPICard({ title, value, subtitle, color = 'primary' }) {
 function OwnerDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState('weekly');
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [period]);
 
   const fetchDashboard = async () => {
+    setLoading(true);
     try {
-      const { data: d } = await api.get('/dashboard/owner');
+      const { data: d } = await api.get(`/dashboard/owner?period=${period}`);
       setData(d);
     } catch (err) {
       toast.error('Failed to load dashboard');
@@ -44,97 +45,181 @@ function OwnerDashboard() {
     }
   };
 
+  const refreshInsights = async () => {
+    try {
+      const { data: insights } = await api.get('/dashboard/insights?refresh=true');
+      setData(prev => prev ? { ...prev, ai_insights: insights } : prev);
+      toast.success('Insights refreshed');
+    } catch (err) {
+      toast.error('Failed to refresh insights');
+    }
+  };
+
   if (loading) return <LoadingState />;
   if (!data) return <p className="text-gray-500">No data available</p>;
 
+  // Transform stock_health object into array for PieChart
+  const stockHealth = data.stock_health || {};
+  const stockHealthData = [
+    { name: 'Healthy', value: stockHealth.healthy || 0 },
+    { name: 'Low Stock', value: stockHealth.low_stock || 0 },
+    { name: 'Out of Stock', value: stockHealth.out_of_stock || 0 },
+  ].filter(item => item.value > 0);
+
+  // KPI cards from backend
+  const kpiCards = Array.isArray(data.kpi_cards) ? data.kpi_cards : [];
+
+  // Top suppliers - backend uses "spend" key
+  const topSuppliers = Array.isArray(data.top_suppliers) ? data.top_suppliers : [];
+
+  // AI insights
+  const aiInsights = Array.isArray(data.ai_insights) ? data.ai_insights : [];
+
+  // Suspicious alerts
+  const suspiciousAlerts = Array.isArray(data.suspicious_alerts) ? data.suspicious_alerts : [];
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Owner Dashboard</h1>
+      {/* Header with period toggle */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Owner Dashboard</h1>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPeriod('weekly')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full ${period === 'weekly' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+          >
+            Weekly
+          </button>
+          <button
+            onClick={() => setPeriod('monthly')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full ${period === 'monthly' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+          >
+            Monthly
+          </button>
+        </div>
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Monthly Spend" value={`£${data.kpis?.monthly_spend?.toLocaleString() || 0}`} color="primary" />
-        <KPICard title="Pending Invoices" value={data.kpis?.pending_invoices || 0} color="blue" />
-        <KPICard title="Low Stock Items" value={data.kpis?.low_stock_items || 0} color="red" />
-        <KPICard title="Gross Margin" value={`${data.kpis?.gross_margin || 0}%`} color="green" />
+        {kpiCards.map((kpi, idx) => (
+          <KPICard key={idx} {...kpi} />
+        ))}
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Suppliers Bar Chart */}
         <div className="card">
-          <h3 className="text-lg font-semibold mb-4">Top Suppliers</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={data.top_suppliers || []}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="total" fill="#d97706" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <h3 className="text-lg font-semibold mb-4">Top Suppliers by Spend</h3>
+          {topSuppliers.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={topSuppliers}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-15} textAnchor="end" height={60} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip formatter={(v) => [`RM ${v}`, 'Spend']} />
+                <Bar dataKey="spend" fill="#d97706" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">No supplier data yet</p>
+          )}
         </div>
 
         {/* Stock Health Pie Chart */}
         <div className="card">
           <h3 className="text-lg font-semibold mb-4">Stock Health</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={data.stock_health || []}
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                dataKey="value"
-                nameKey="status"
-                label={({ status, value }) => `${status}: ${value}`}
-              >
-                {(data.stock_health || []).map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+          {stockHealthData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie
+                  data={stockHealthData}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                  dataKey="value"
+                  nameKey="name"
+                  label={({ name, value }) => `${name}: ${value}`}
+                >
+                  {stockHealthData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-sm text-gray-400">No inventory items yet</p>
+              <p className="text-xs text-gray-300 mt-1">Total: {stockHealth.total || 0} items</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* AI Insights */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">AI Insights</h3>
-        {data.ai_insights?.length > 0 ? (
-          <ul className="space-y-3">
-            {data.ai_insights.map((insight, i) => (
-              <li key={i} className="flex items-start gap-3 p-3 bg-primary-50 rounded-lg">
-                <span className="text-lg">💡</span>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{insight.title}</p>
-                  <p className="text-xs text-gray-600 mt-1">{insight.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-gray-500">No insights available</p>
-        )}
-      </div>
-
-      {/* Suspicious Alerts */}
-      {data.suspicious_alerts?.length > 0 && (
-        <div className="card border border-red-200">
-          <h3 className="text-lg font-semibold text-red-700 mb-4">⚠️ Suspicious Activity</h3>
-          <ul className="space-y-2">
-            {data.suspicious_alerts.map((alert, i) => (
-              <li key={i} className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
-                <span className="text-red-500 text-sm font-medium">{alert.type}</span>
-                <span className="text-sm text-gray-700">{alert.message}</span>
-                <span className="text-xs text-gray-400 ml-auto">{alert.date}</span>
-              </li>
-            ))}
-          </ul>
+      {/* AI Insights & Suspicious */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* AI Insights */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">AI Insights</h3>
+            <button onClick={refreshInsights} className="btn-secondary text-xs">
+              Refresh
+            </button>
+          </div>
+          {aiInsights.length > 0 ? (
+            <ul className="space-y-3">
+              {aiInsights.map((insight, i) => (
+                <li key={insight.id || i} className="flex items-start gap-3 p-3 bg-primary-50 rounded-lg">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    insight.severity === 'critical' ? 'bg-red-100 text-red-700' :
+                    insight.severity === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {insight.severity || 'info'}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{insight.content_bm || insight.title}</p>
+                    <p className="text-xs text-gray-500 mt-1">{insight.content_en}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">No insights available. Click Refresh to generate.</p>
+          )}
         </div>
-      )}
+
+        {/* Suspicious Alerts */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Suspicious Transactions</h3>
+          {suspiciousAlerts.length > 0 ? (
+            <ul className="space-y-3">
+              {suspiciousAlerts.map((alert) => (
+                <li key={alert.id} className="flex items-start gap-3 p-3 bg-red-50 rounded-lg">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                    alert.severity === 'high' ? 'bg-red-200 text-red-800' :
+                    alert.severity === 'medium' ? 'bg-orange-200 text-orange-800' :
+                    'bg-yellow-200 text-yellow-800'
+                  }`}>
+                    {alert.severity}
+                  </span>
+                  <div>
+                    <p className="text-sm text-gray-800">{alert.reason}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {alert.cashier && `Cashier: ${alert.cashier}`}
+                      {alert.amount != null && ` • RM ${alert.amount}`}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-green-600">No suspicious transactions detected</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -161,9 +246,16 @@ function AdminDashboard() {
   if (loading) return <LoadingState />;
   if (!data) return <p className="text-gray-500">No data available</p>;
 
-  const ragColor = (status) => {
-    if (status === 'green') return 'bg-green-100 text-green-800';
-    if (status === 'amber') return 'bg-yellow-100 text-yellow-800';
+  // Safely extract arrays with fallbacks
+  const stockStatus = Array.isArray(data.stock_status) ? data.stock_status : [];
+  const reorderChecklist = Array.isArray(data.reorder_checklist) ? data.reorder_checklist : [];
+  const pendingInvoices = Array.isArray(data.pending_invoices) ? data.pending_invoices : [];
+  const recentMovements = Array.isArray(data.recent_movements) ? data.recent_movements : [];
+  const todaySummary = data.today_summary && typeof data.today_summary === 'object' ? data.today_summary : {};
+
+  const ragColor = (color) => {
+    if (color === 'green') return 'bg-green-100 text-green-800';
+    if (color === 'yellow') return 'bg-yellow-100 text-yellow-800';
     return 'bg-red-100 text-red-800';
   };
 
@@ -171,93 +263,122 @@ function AdminDashboard() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
 
-      {/* Stock Status RAG */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Stock Status</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {(data.stock_status || []).map((item, i) => (
-            <div key={i} className={`p-3 rounded-lg ${ragColor(item.rag)}`}>
-              <p className="font-medium text-sm">{item.name}</p>
-              <p className="text-xs mt-1">Qty: {item.quantity} {item.unit}</p>
-            </div>
-          ))}
+      {/* Today Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card text-center">
+          <p className="text-sm text-gray-500">Sales Today</p>
+          <p className="text-xl font-bold text-green-600">RM {(todaySummary.sales || 0).toLocaleString()}</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-sm text-gray-500">Transactions</p>
+          <p className="text-xl font-bold">{todaySummary.transactions || 0}</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-sm text-gray-500">Pending Invoices</p>
+          <p className="text-xl font-bold text-orange-600">{todaySummary.pending_invoices || 0}</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-sm text-gray-500">Low Stock Items</p>
+          <p className="text-xl font-bold text-red-600">{todaySummary.low_stock_items || 0}</p>
         </div>
       </div>
 
-      {/* Reorder Checklist */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Reorder Checklist</h3>
-        {(data.reorder_items || []).length > 0 ? (
-          <ul className="space-y-2">
-            {data.reorder_items.map((item, i) => (
-              <li key={i} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded">
-                <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-primary-600" />
-                <span className="text-sm text-gray-800 flex-1">{item.name}</span>
-                <span className="text-xs text-gray-500">Need: {item.needed} {item.unit}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-gray-500">All stock levels OK</p>
-        )}
+      {/* Stock Status & Reorder */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Stock Status RAG */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Stock Status</h3>
+          {stockStatus.length > 0 ? (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {stockStatus.map((item) => (
+                <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg ${ragColor(item.color)}`}>
+                  <div>
+                    <p className="font-medium text-sm">{item.name}</p>
+                    <p className="text-xs mt-0.5 opacity-75">{item.category}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold">{item.stock} {item.unit}</p>
+                    <p className="text-xs opacity-75">{item.days_left}d left</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No inventory items</p>
+          )}
+        </div>
+
+        {/* Reorder Checklist */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Reorder Checklist</h3>
+          {reorderChecklist.length > 0 ? (
+            <ul className="space-y-2">
+              {reorderChecklist.map((item) => (
+                <li key={item.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                  <span className="text-sm font-medium">{item.name}</span>
+                  <span className="text-xs text-red-600">
+                    {item.stock} {item.unit} (min: {item.reorder_level})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-green-600">All stock levels OK</p>
+          )}
+        </div>
       </div>
 
-      {/* Pending Invoices */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Pending Invoices</h3>
-        {(data.pending_invoices || []).length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-2 text-gray-500 font-medium">Supplier</th>
-                  <th className="text-left py-2 text-gray-500 font-medium">Date</th>
-                  <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
-                  <th className="text-right py-2 text-gray-500 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.pending_invoices.map((inv, i) => (
-                  <tr key={i} className="border-b border-gray-50">
-                    <td className="py-2 text-gray-900">{inv.supplier}</td>
-                    <td className="py-2 text-gray-600">{inv.date}</td>
-                    <td className="py-2 text-right text-gray-900">£{inv.amount?.toFixed(2)}</td>
-                    <td className="py-2 text-right">
-                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
-                        {inv.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">No pending invoices</p>
-        )}
-      </div>
+      {/* Pending Invoices & Recent Movements */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Pending Invoices */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Pending Invoices</h3>
+          {pendingInvoices.length > 0 ? (
+            <div className="space-y-2">
+              {pendingInvoices.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium">{inv.supplier || inv.filename || `Invoice #${inv.id}`}</p>
+                    <p className="text-xs text-gray-500">{inv.status}</p>
+                  </div>
+                  {inv.amount != null && (
+                    <span className="text-sm font-bold">RM {inv.amount.toFixed(2)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-green-600">No pending invoices</p>
+          )}
+        </div>
 
-      {/* Recent Movements */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Recent Stock Movements</h3>
-        {(data.recent_movements || []).length > 0 ? (
-          <ul className="space-y-2">
-            {data.recent_movements.map((mov, i) => (
-              <li key={i} className="flex items-center gap-3 p-2 text-sm">
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  mov.type === 'in' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {mov.type === 'in' ? 'IN' : 'OUT'}
-                </span>
-                <span className="text-gray-800 flex-1">{mov.item}</span>
-                <span className="text-gray-500">{mov.quantity} {mov.unit}</span>
-                <span className="text-gray-400 text-xs">{mov.date}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-gray-500">No recent movements</p>
-        )}
+        {/* Recent Movements */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Recent Stock Movements</h3>
+          {recentMovements.length > 0 ? (
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {recentMovements.map((m) => (
+                <div key={m.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                      m.type === 'stock_in' ? 'bg-green-100 text-green-700' :
+                      m.type === 'waste' ? 'bg-red-100 text-red-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      {m.type}
+                    </span>
+                    <span className="text-sm text-gray-700">{m.notes || `Item #${m.item_id}`}</span>
+                  </div>
+                  <span className="text-sm font-medium">
+                    {m.quantity > 0 ? '+' : ''}{m.quantity}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No recent movements</p>
+          )}
+        </div>
       </div>
     </div>
   );
